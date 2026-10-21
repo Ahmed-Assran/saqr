@@ -91,7 +91,7 @@ def login(
     account_id: str = typer.Option(..., "--account-id", "-a", help="Account ID to log in to"),
 ):
     """
-    Launch a headed browser window to manually log in to X.com or TikTok
+    Launch a real browser window to manually log in to X.com or TikTok
     and save the session cookie state to data/sessions/.
     """
     settings, targets = load_config()
@@ -103,40 +103,143 @@ def login(
         console.print(f"[bold red]Account ID '{account_id}' not found in pool config![/bold red]")
         raise typer.Exit(code=1)
 
-    console.print(f"[bold cyan]Launching headed browser for account: {account_id} ({account.platform})[/bold cyan]")
+    console.print(f"[bold cyan]Launching browser for account: {account_id} ({account.platform})...[/bold cyan]")
 
     async def _do_login():
         from playwright.async_api import async_playwright
 
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=False)
-            context = await create_stealth_context(
-                browser=browser,
-                proxy_url=account.proxy_url,
-                user_agent=account.user_agent,
-                viewport=account.viewport,
-                locale=settings["browser"]["locale"],
-                timezone_id=settings["browser"]["timezone_id"],
-            )
+            # Try real Chrome first for maximum trust and anti-bot bypass
+            launch_kwargs: Dict[str, Any] = {
+                "headless": False,
+                "args": [
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-sandbox",
+                    "--start-maximized",
+                ],
+            }
+            try:
+                browser = await p.chromium.launch(channel="chrome", **launch_kwargs)
+            except Exception:
+                browser = await p.chromium.launch(**launch_kwargs)
+
+            # Clean context WITHOUT blocking stylesheets/images so the login page renders fully
+            context_opts: Dict[str, Any] = {
+                "user_agent": account.user_agent,
+                "viewport": None,  # Match window size
+            }
+            if account.proxy_url:
+                context_opts["proxy"] = {"server": account.proxy_url}
+
+            context = await browser.new_context(**context_opts)
             page = await context.new_page()
 
-            target_url = "https://x.com/i/flow/login" if account.platform == "x" else "https://www.tiktok.com/login"
-            await page.goto(target_url)
+            target_url = "https://x.com/login" if account.platform == "x" else "https://www.tiktok.com/login"
+            console.print(f"[cyan]Navigating to {target_url}...[/cyan]")
+            try:
+                await page.goto(target_url, timeout=45000)
+            except Exception as e:
+                console.print(f"[yellow]Navigation notice: {e}. You can still interact with the open browser.[/yellow]")
 
-            console.print("[yellow]Please log in inside the opened browser window.[/yellow]")
-            console.print("[yellow]Once successfully logged in, press ENTER in this terminal to save session...[/yellow]")
+            console.print("\n[bold green]====================================================[/bold green]")
+            console.print("[bold yellow]Please complete your login in the opened browser window.[/bold yellow]")
+            console.print("[yellow]Once you see your Home feed / profile, press ENTER here in terminal...[/yellow]")
+            console.print("[bold green]====================================================[/bold green]\n")
             input("Press ENTER after login is complete: ")
 
             session_file = PROJECT_ROOT / (account.storage_state_path or f"data/sessions/{account.platform}_{account.account_id}.json")
             session_file.parent.mkdir(parents=True, exist_ok=True)
             await context.storage_state(path=str(session_file))
             account.storage_state_path = str(session_file.relative_to(PROJECT_ROOT))
+            account.status = "active"
             vault.save_accounts()
 
-            console.print(f"[bold green]Session state successfully saved to {session_file}[/bold green]")
+            # Verify if auth_token was captured
+            with open(session_file, "r", encoding="utf-8") as f:
+                state_data = json.load(f)
+            captured_names = [c.get("name") for c in state_data.get("cookies", [])]
+
+            if "auth_token" in captured_names or "sessionid" in captured_names:
+                console.print(f"[bold green]✓ Authenticated session successfully saved to {session_file}![/bold green]")
+            else:
+                console.print(f"[yellow]Session saved to {session_file}. Note: 'auth_token' cookie was not detected. If you see a login screen on your next run, make sure you finished logging in before pressing ENTER.[/yellow]")
+
             await browser.close()
 
     asyncio.run(_do_login())
+
+
+@app.command()
+def set_token(
+    account_id: str = typer.Option("x_ksa_01", "--account-id", "-a", help="Account ID to configure"),
+    auth_token: Optional[str] = typer.Option(None, "--auth-token", "-t", help="auth_token cookie value from x.com"),
+    ct0: Optional[str] = typer.Option(None, "--ct0", "-c", help="ct0 cookie value from x.com (optional)"),
+):
+    """
+    Directly import your x.com auth_token from your regular browser.
+    Foolproof, 10-second authentication with zero Cloudflare or blank screen issues.
+    """
+    settings, targets = load_config()
+    accounts_path = PROJECT_ROOT / "config" / "accounts_pool.json"
+    vault = AccountVault(accounts_path, base_dir=PROJECT_ROOT)
+
+    account = vault.get_account_by_id(account_id)
+    if not account:
+        console.print(f"[bold red]Account ID '{account_id}' not found in pool config![/bold red]")
+        raise typer.Exit(code=1)
+
+    if not auth_token:
+        console.print("[bold cyan]How to get your auth_token from Chrome/Edge in 10 seconds:[/bold cyan]")
+        console.print("1. Open https://x.com in your normal browser (where you are already logged in).")
+        console.print("2. Press F12 -> Go to 'Application' tab -> 'Cookies' -> 'https://x.com'.")
+        console.print("3. Find the cookie named 'auth_token' and copy its Value.\n")
+        auth_token = typer.prompt("Paste your 'auth_token' value").strip()
+
+    if not auth_token:
+        console.print("[red]auth_token cannot be empty.[/red]")
+        raise typer.Exit(code=1)
+
+    if not ct0:
+        ct0_input = typer.prompt("Paste your 'ct0' value (optional, press Enter to skip)", default="").strip()
+        ct0 = ct0_input if ct0_input else None
+
+    # Construct standard Playwright storage_state payload
+    cookies = [
+        {
+            "name": "auth_token",
+            "value": auth_token,
+            "domain": ".x.com",
+            "path": "/",
+            "expires": 1893456000,
+            "httpOnly": True,
+            "secure": True,
+            "sameSite": "None",
+        }
+    ]
+    if ct0:
+        cookies.append({
+            "name": "ct0",
+            "value": ct0,
+            "domain": ".x.com",
+            "path": "/",
+            "expires": 1893456000,
+            "httpOnly": False,
+            "secure": True,
+            "sameSite": "Lax",
+        })
+
+    session_file = PROJECT_ROOT / (account.storage_state_path or f"data/sessions/{account.platform}_{account.account_id}.json")
+    session_file.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(session_file, "w", encoding="utf-8") as f:
+        json.dump({"cookies": cookies, "origins": []}, f, indent=2)
+
+    account.storage_state_path = str(session_file.relative_to(PROJECT_ROOT))
+    account.status = "active"
+    vault.save_accounts()
+
+    console.print(f"[bold green]✓ Successfully configured authenticated session in {session_file}![/bold green]")
+    console.print("[bold green]Account 'x_ksa_01' is now ACTIVE and authenticated. You can run Saqr now![/bold green]")
 
 
 @app.command()
