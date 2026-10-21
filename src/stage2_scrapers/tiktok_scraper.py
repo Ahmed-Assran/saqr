@@ -43,6 +43,8 @@ class TikTokScraper:
         self._staging_file = (
             self.staging_dir / f"raw_leads_{self.checkpoint.run_date}.jsonl"
         )
+        self._current_video_url: str = ""
+        self._current_query: str = ""
         self._load_existing_staged_leads()
 
     def _load_existing_staged_leads(self) -> None:
@@ -156,8 +158,8 @@ class TikTokScraper:
                 found.append(lead)
         return found
 
-    async def _setup_interceptor(self, page: Page, video_url: str, query: str) -> None:
-        """Attach TikTok comment interceptor."""
+    def _setup_interceptor(self, page: Page) -> None:
+        """Attach TikTok comment interceptor once per page."""
         async def handle_response(response: Response) -> None:
             url = response.url
             if "/api/comment/list" in url:
@@ -166,7 +168,9 @@ class TikTokScraper:
                         content_type = response.headers.get("content-type", "")
                         if "json" in content_type:
                             data = await response.json()
-                            leads = self._parse_comments_response(data, video_url=video_url, query=query)
+                            leads = self._parse_comments_response(
+                                data, video_url=self._current_video_url, query=self._current_query
+                            )
                             for l in leads:
                                 self._persist_lead(l)
                             logger.info(f"Intercepted {len(leads)} intent leads from TikTok comments")
@@ -191,6 +195,7 @@ class TikTokScraper:
             timezone_id=self.settings["browser"]["timezone_id"],
         )
         page = await context.new_page()
+        self._setup_interceptor(page)
 
         try:
             for q in queries:
@@ -198,16 +203,18 @@ class TikTokScraper:
                     continue
 
                 logger.info(f"Searching TikTok for: {q}")
+                self._current_query = q
                 encoded_q = urllib.parse.quote(q)
                 search_url = f"https://www.tiktok.com/search?q={encoded_q}"
 
                 try:
-                    res = await page.goto(search_url, wait_until="networkidle", timeout=30000)
+                    res = await page.goto(search_url, wait_until="domcontentloaded", timeout=25000)
                     if res and res.status in (429, 403):
                         account.trigger_circuit_breaker(res.status)
                         break
 
-                    await human_scroll(page, iterations=3, min_pause=3.0, max_pause=6.0)
+                    await asyncio.sleep(2.5)
+                    await human_scroll(page, iterations=3, min_pause=2.5, max_pause=5.0)
 
                     # Extract top video links
                     video_links = await page.evaluate("""() => {
@@ -217,8 +224,9 @@ class TikTokScraper:
 
                     for v_url in video_links:
                         logger.info(f"Opening TikTok video: {v_url}")
-                        await self._setup_interceptor(page, video_url=v_url, query=q)
-                        await page.goto(v_url, wait_until="networkidle", timeout=30000)
+                        self._current_video_url = v_url
+                        await page.goto(v_url, wait_until="domcontentloaded", timeout=25000)
+                        await asyncio.sleep(2.0)
 
                         # Click comment drawer button to trigger /api/comment/list/
                         try:
@@ -231,13 +239,13 @@ class TikTokScraper:
                         except Exception:
                             pass
 
-                        await human_scroll(page, iterations=4, min_pause=3.5, max_pause=7.0)
+                        await human_scroll(page, iterations=3, min_pause=2.5, max_pause=5.0)
 
                     self.checkpoint.mark_tiktok_query_completed(q)
                     account = self.vault.rotate_or_cooldown(account) or account
                 except Exception as e:
                     logger.warning(f"Error exploring TikTok query '{q}': {e}")
-                    await asyncio.sleep(4.0)
+                    await asyncio.sleep(3.0)
 
         finally:
             await context.close()

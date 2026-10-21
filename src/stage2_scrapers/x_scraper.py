@@ -46,6 +46,8 @@ class XScraper:
         self._staging_file = (
             self.staging_dir / f"raw_leads_{self.checkpoint.run_date}.jsonl"
         )
+        self._current_trigger_type: str = "search_tweet"
+        self._current_query_source: str = ""
         self._load_existing_staged_leads()
 
     def _load_existing_staged_leads(self) -> None:
@@ -90,29 +92,69 @@ class XScraper:
     ) -> Optional[NormalizedLead]:
         """
         Parses X GraphQL user and tweet structures into NormalizedLead and TriggerEvent.
+        Supports both legacy and modern (2025/2026) X GraphQL schemas.
         """
         try:
             # Handle user_results.result
             u_res = user_result.get("result", user_result)
-            rest_id = u_res.get("rest_id", "")
+            rest_id = u_res.get("rest_id") or u_res.get("id") or ""
             legacy_user = u_res.get("legacy", {})
+            user_core = u_res.get("core", {})
 
-            screen_name = legacy_user.get("screen_name") or u_res.get("screen_name")
+            screen_name = (
+                user_core.get("screen_name")
+                or legacy_user.get("screen_name")
+                or u_res.get("screen_name")
+            )
             if not screen_name or not rest_id:
                 return None
 
-            name = legacy_user.get("name", screen_name)
-            bio = legacy_user.get("description", "")
-            location = legacy_user.get("location", "")
-            followers_count = legacy_user.get("followers_count", 0)
-            following_count = legacy_user.get("friends_count", 0)
-            can_dm = legacy_user.get("can_dm")
-            verified = legacy_user.get("verified", False) or u_res.get("is_blue_verified", False)
+            name = (
+                user_core.get("name")
+                or legacy_user.get("name")
+                or u_res.get("name")
+                or screen_name
+            )
+            bio = (
+                u_res.get("profile_bio", {}).get("description")
+                or legacy_user.get("description")
+                or ""
+            )
+            loc_val = u_res.get("location")
+            if isinstance(loc_val, dict):
+                location = loc_val.get("location", "")
+            else:
+                location = loc_val or legacy_user.get("location") or ""
+
+            rel_counts = u_res.get("relationship_counts", {})
+            followers_count = (
+                rel_counts.get("followers")
+                if "followers" in rel_counts
+                else legacy_user.get("followers_count", 0)
+            )
+            following_count = (
+                rel_counts.get("following")
+                if "following" in rel_counts
+                else legacy_user.get("friends_count", 0)
+            )
+            can_dm = legacy_user.get("can_dm") or u_res.get("can_dm")
+            verified = (
+                u_res.get("is_blue_verified", False)
+                or u_res.get("verification", {}).get("verified", False)
+                or legacy_user.get("verified", False)
+            )
 
             # Tweet info
             legacy_tweet = tweet_data.get("legacy", tweet_data)
             tweet_id = tweet_data.get("rest_id") or legacy_tweet.get("id_str", "")
-            tweet_text = legacy_tweet.get("full_text") or legacy_tweet.get("text", "")
+            tweet_text = (
+                tweet_data.get("note_tweet", {})
+                .get("note_tweet_results", {})
+                .get("result", {})
+                .get("text")
+                or legacy_tweet.get("full_text")
+                or legacy_tweet.get("text", "")
+            )
             created_at = legacy_tweet.get("created_at", datetime.now(timezone.utc).isoformat())
 
             tweet_url = f"https://x.com/{screen_name}/status/{tweet_id}" if tweet_id else f"https://x.com/{screen_name}"
@@ -189,8 +231,8 @@ class XScraper:
         recurse(data)
         return found_leads
 
-    async def _setup_interceptor(self, page: Page, trigger_type: str, query_source: str) -> None:
-        """Attach network response handler for X GraphQL calls."""
+    def _setup_interceptor(self, page: Page) -> None:
+        """Attach network response handler for X GraphQL calls once per page."""
         async def handle_response(response: Response) -> None:
             url = response.url
             if any(ep in url for ep in ["/SearchTimeline", "/TweetDetail", "/UserTweets", "/TweetResultByRestId"]):
@@ -199,7 +241,11 @@ class XScraper:
                         content_type = response.headers.get("content-type", "")
                         if "json" in content_type:
                             data = await response.json()
-                            leads = self._parse_graphql_json(data, trigger_type=trigger_type, query_source=query_source)
+                            leads = self._parse_graphql_json(
+                                data,
+                                trigger_type=self._current_trigger_type,
+                                query_source=self._current_query_source,
+                            )
                             for l in leads:
                                 self._persist_lead(l)
                             logger.info(f"Intercepted {len(leads)} leads from {url.split('?')[0]}")
@@ -233,6 +279,7 @@ class XScraper:
             timezone_id=self.settings["browser"]["timezone_id"],
         )
         page = await context.new_page()
+        self._setup_interceptor(page)
 
         try:
             for query in all_queries:
@@ -241,26 +288,28 @@ class XScraper:
                     continue
 
                 logger.info(f"Executing X search query: {query}")
-                await self._setup_interceptor(page, trigger_type="search_tweet", query_source=query)
+                self._current_trigger_type = "search_tweet"
+                self._current_query_source = query
 
                 encoded_query = urllib.parse.quote(query)
                 search_url = f"https://x.com/search?q={encoded_query}&f=live"
 
                 try:
-                    res = await page.goto(search_url, wait_until="networkidle", timeout=30000)
+                    res = await page.goto(search_url, wait_until="domcontentloaded", timeout=25000)
                     if res and res.status in (429, 403):
                         account.trigger_circuit_breaker(res.status)
                         break
 
+                    await asyncio.sleep(2.5)
                     # Human scrolling to trigger GraphQL pagination
-                    await human_scroll(page, iterations=3, min_pause=3.0, max_pause=6.0)
+                    await human_scroll(page, iterations=3, min_pause=2.5, max_pause=4.5)
                     self.checkpoint.mark_x_query_completed(query)
 
                     # Account rotation check
                     account = self.vault.rotate_or_cooldown(account) or account
                 except Exception as e:
                     logger.warning(f"Error navigating X search '{query}': {e}")
-                    await asyncio.sleep(4.0)
+                    await asyncio.sleep(3.0)
 
         finally:
             await context.close()
@@ -283,6 +332,7 @@ class XScraper:
             timezone_id=self.settings["browser"]["timezone_id"],
         )
         page = await context.new_page()
+        self._setup_interceptor(page)
 
         try:
             for b in brokers:
@@ -292,22 +342,24 @@ class XScraper:
                     continue
 
                 logger.info(f"Harvesting replies under broker @{handle}")
-                await self._setup_interceptor(page, trigger_type="broker_reply", query_source=f"@{handle}")
+                self._current_trigger_type = "broker_reply"
+                self._current_query_source = f"@{handle}"
 
                 profile_url = f"https://x.com/{handle}/with_replies"
                 try:
-                    res = await page.goto(profile_url, wait_until="networkidle", timeout=30000)
+                    res = await page.goto(profile_url, wait_until="domcontentloaded", timeout=25000)
                     if res and res.status in (429, 403):
                         account.trigger_circuit_breaker(res.status)
                         break
 
+                    await asyncio.sleep(2.5)
                     # Scroll to trigger UserTweets GraphQL
-                    await human_scroll(page, iterations=4, min_pause=3.5, max_pause=7.0)
+                    await human_scroll(page, iterations=3, min_pause=2.5, max_pause=4.5)
                     self.checkpoint.mark_x_broker_completed(handle)
 
                     account = self.vault.rotate_or_cooldown(account) or account
                 except Exception as e:
                     logger.warning(f"Error navigating broker @{handle}: {e}")
-                    await asyncio.sleep(4.0)
+                    await asyncio.sleep(3.0)
         finally:
             await context.close()
