@@ -219,6 +219,18 @@ class TikTokScraper:
                         logger.info(f"Opening TikTok video: {v_url}")
                         await self._setup_interceptor(page, video_url=v_url, query=q)
                         await page.goto(v_url, wait_until="networkidle", timeout=30000)
+
+                        # Click comment drawer button to trigger /api/comment/list/
+                        try:
+                            comment_btn = page.locator(
+                                '[data-e2e="comment-icon"], [data-e2e="browse-comment-icon"]'
+                            ).first
+                            if await comment_btn.count() > 0:
+                                await comment_btn.click()
+                                await asyncio.sleep(2.5)
+                        except Exception:
+                            pass
+
                         await human_scroll(page, iterations=4, min_pause=3.5, max_pause=7.0)
 
                     self.checkpoint.mark_tiktok_query_completed(q)
