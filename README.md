@@ -114,7 +114,7 @@ The Top 50 leads exported daily are balanced across 5 dedicated categories:
 ### 1. Installation
 Clone the repository and install dependencies:
 ```bash
-git clone https://github.com/A7medAssran/saqr.git
+git clone https://github.com/Ahmed-Assran/saqr.git
 cd saqr
 pip install -r requirements.txt
 playwright install chromium
