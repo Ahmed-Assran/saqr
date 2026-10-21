@@ -1,0 +1,69 @@
+# Global System Settings for Saqr (صقر)
+system:
+  name: "saqr"
+  display_name: "Saqr 🦅 (صقر)"
+  version: "1.0.0"
+  timezone: "Asia/Riyadh"
+  start_time: "10:30"
+  export_deadline: "12:00"
+  daily_lead_target: 50
+  min_qualification_score: 55
+
+paths:
+  sessions_dir: "data/sessions"
+  checkpoints_dir: "data/checkpoints"
+  staging_dir: "data/staging"
+  db_path: "data/db/leads_history.db"
+  exports_dir: "exports"
+  logs_dir: "logs"
+
+browser:
+  headless: true
+  locale: "ar-SA"
+  timezone_id: "Asia/Riyadh"
+  geolocation:
+    latitude: 24.7136
+    longitude: 46.6753
+    accuracy: 100
+  human_scroll:
+    min_pause_sec: 3.5
+    max_pause_sec: 8.2
+    upward_scroll_probability: 0.15
+    upward_scroll_pixels: -150
+  network_filtering:
+    blocked_resource_types:
+      - "image"
+      - "media"
+      - "font"
+      - "stylesheet"
+    blocked_extensions:
+      - ".mp4"
+      - ".m3u8"
+      - ".webm"
+      - ".woff"
+      - ".woff2"
+      - ".ttf"
+      - ".otf"
+
+scoring:
+  heuristic_max_score: 60
+  llm_max_score: 40
+  min_total_score_export: 55
+  deduplication_lookback_days: 90
+
+llm:
+  provider: "ollama" # "ollama" or "gemini" or "heuristic_fallback"
+  ollama:
+    base_url: "http://localhost:11434"
+    model: "qwen2.5:14b"
+    fallback_model: "llama3.1:8b"
+    timeout_seconds: 30
+  gemini:
+    model: "gemini-2.5-flash"
+    api_key_env: "GEMINI_API_KEY"
+
+rotation_policy:
+  x_max_requests_per_window: 20
+  tiktok_max_videos_per_window: 20
+  cooldown_minutes: 45
+  circuit_breaker_cooldown_minutes: 60

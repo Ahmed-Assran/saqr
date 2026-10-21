@@ -1,0 +1,108 @@
+# config/targets_ksa.yaml
+schedule:
+  timezone: "Asia/Riyadh"
+  start_time: "10:30"
+  deadline_export_time: "12:00"
+  daily_lead_target: 50
+
+x_search_queries:
+  # Category 1: Options Trading Intent (عقود الأوبشن)
+  options_intent:
+    - '(أوبشن OR الاوبشن OR "عقود الخيارات" OR "عقود الاوبشن") (السوق_الأمريكي OR الأسهم_الأمريكية OR دراية OR سهم) -is:retweet'
+    - '(#أوبشن OR #الاوبشن) (كول OR بوت OR عقود OR تداول) lang:ar -is:retweet'
+    - '("كيف اشتري اوبشن" OR "تعليم الاوبشن" OR "توصيات اوبشن" OR "قروب اوبشن") lang:ar -is:retweet'
+
+  # Category 2: Sharia / Halal US Stocks Intent (الأسهم النقية والشرعية)
+  sharia_halal_intent:
+    - '(#الأسهم_النقية OR #الأسهم_الحلال OR "الاسهم الامريكية النقية" OR "شرعية السهم") lang:ar -is:retweet'
+    - '("هل سهم" OR "حكم سهم" OR "نقاوة سهم" OR "تطهير السهم") (امريكي OR $NVDA OR $TSLA OR $AAPL OR $AMD OR $PLTR) lang:ar -is:retweet'
+
+  # Category 3: Active Day & Swing Trading Intent (المضاربة اليومية واللحظية)
+  day_swing_intent:
+    - '(#الأسهم_الأمريكية OR #السوق_الأمريكي OR #تداول_الأسهم_الأمريكية) (دخول OR اهداف OR مقاومة OR دعم OR مضاربة) -is:retweet'
+    - '("وش رايكم في سهم" OR "سهم للدخول" OR "فرصة في السوق الامريكي" OR "توصيات السوق الامريكي") lang:ar -is:retweet'
+
+  # Category 4: High-Velocity US Tech Cashtags with Arabic Context
+  us_tech_cashtags_ar:
+    - '($NVDA OR $TSLA OR $AAPL OR $MSFT OR $AMD) (سهم OR شراء OR دخول OR هدف OR اوبشن OR محفظة) lang:ar -is:retweet'
+    - '($PLTR OR $META OR $AMZN OR $GOOGL OR $COIN OR $MSTR OR $SPY OR $QQQ) (سهم OR شراء OR دخول OR اوبشن) lang:ar -is:retweet'
+
+  # Category 5: KSA Broker & Recommendation Seekers (الباحثون عن وسطاء وقروبات)
+  broker_and_group_seekers:
+    - '("دراية جلوبل" OR "تطبيق سهم" OR "سهم كابيتال" OR "تطبيق عوائد" OR "تطبيق بركة") (عمولة OR رايكم OR افضل OR السوق الامريكي) lang:ar -is:retweet'
+    - '("افضل وسيط للسوق الامريكي" OR "افضل منصة للاسهم الامريكية" OR "قروب توصيات امريكي" OR "القروبات المدفوعة") lang:ar -is:retweet'
+
+x_seed_accounts:
+  # Official KSA & GCC US-Stock Trading Platforms (Monitor replies & quote tweets on their posts)
+  ksa_brokers_and_platforms:
+    - handle: "Derayah"
+      name: "Derayah Financial (دراية المالية - دراية جلوبل)"
+      url: "https://web.derayah.com/ar/platforms/derayah-global/"
+      scrape_mode: "replies_and_mentions"
+    - handle: "Sahm_Capital"
+      name: "Sahm Capital (سهم كابيتال)"
+      url: "https://www.sahmcapital.com/ar-sa/"
+      scrape_mode: "replies_and_mentions"
+    - handle: "AwaedApp"
+      name: "Awaed (تطبيق عوائد)"
+      url: "https://awaed.capital/"
+      scrape_mode: "replies_and_mentions"
+    - handle: "getbaraka"
+      name: "Baraka (تطبيق بركة)"
+      url: "https://getbaraka.com/ar/"
+      scrape_mode: "replies_and_mentions"
+    - handle: "SNBCapital"
+      name: "SNB Capital (الأهلي المالية - التداول الدولي)"
+      url: "https://snbcapital.com/ar/global-trading"
+      scrape_mode: "replies_and_mentions"
+    - handle: "RiyadCapital"
+      name: "Riyad Capital (الرياض المالية - السوق الأمريكي)"
+      url: "https://www.riyadcapital.com/ar/us-market"
+      scrape_mode: "replies_and_mentions"
+    - handle: "IBKR"
+      name: "Interactive Brokers (انتراكتف بروكرز - Arabic mentions)"
+      url: "https://www.interactivebrokers.com/"
+      scrape_mode: "arabic_mentions_only"
+
+tiktok_ksa_finance_targets:
+  search_queries:
+    - "الأسهم الأمريكية السعودية"
+    - "تعليم الاوبشن السوق الامريكي"
+    - "تطبيق سهم الاسهم الامريكية"
+    - "دراية جلوبل اوبشن"
+    - "الأسهم النقية الأمريكية"
+    - "توصيات الاسهم الامريكية"
+    - "تطبيق عوائد الاسهم الامريكية"
+  comment_intent_keywords:
+    - "وش رايك في سهم"
+    - "كيف ادخل"
+    - "كيف اشترك"
+    - "في قروب"
+    - "عندك توصيات"
+    - "هل السهم نقي"
+    - "اي تطبيق"
+    - "كم العمولة"
+    - "اوبشن"
+    - "دراية"
+    - "سهم"
+    - "عوائد"
+    - "بركة"
+
+disqualification_rules:
+  bio_and_text_blacklist_regex:
+    - "توصيات مدفوعة"
+    - "للاشتراك تواصل"
+    - "إدارة محافظ"
+    - "ادارة محافظ"
+    - "قروب توصيات"
+    - "اشترك الآن"
+    - "اشترك الان"
+    - "VIP Signals"
+    - "VIP signals"
+    - "DM for promo"
+    - "Account manager"
+    - "Forex signals"
+    - "crypto pump"
+    - "airdrop"
+    - "بوت تداول"
+    - "ارباح مضمونة"

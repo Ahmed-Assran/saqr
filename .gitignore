@@ -1,0 +1,58 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Python environments
+.venv/
+venv/
+ENV/
+env/
+
+# Configuration & Sensitive Credential Pools
+# (Keep config/accounts_pool.example.json tracked, ignore real pool)
+config/accounts_pool.json
+.env
+.env.*
+
+# Session cookies & browser states (CRITICAL: Never commit session cookies)
+data/sessions/*.json
+!data/sessions/.gitkeep
+
+# Checkpoints & Progress
+data/checkpoints/*.json
+data/checkpoints/*.tmp
+!data/checkpoints/.gitkeep
+
+# Staging raw scraping files
+data/staging/*.jsonl
+data/staging/*.tmp
+!data/staging/.gitkeep
+
+# Databases
+data/db/*.db
+data/db/*.db-journal
+!data/db/.gitkeep
+
+# Output delivery files (Protect harvested prospect privacy)
+exports/*.xlsx
+exports/*.csv
+!exports/.gitkeep
+
+# Logs
+logs/*.log
+!logs/.gitkeep
+
+# Pytest & Testing Cache
+.pytest_cache/
+.coverage
+htmlcov/
+
+# OS and Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db

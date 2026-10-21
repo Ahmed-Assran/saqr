@@ -1,0 +1,51 @@
+{
+  "rotation_policy": {
+    "x_max_requests_per_window": 20,
+    "tiktok_max_videos_per_window": 20,
+    "cooldown_minutes": 45,
+    "circuit_breaker_cooldown_minutes": 60,
+    "jitter_seconds_min": 3.5,
+    "jitter_seconds_max": 8.2
+  },
+  "accounts": [
+    {
+      "account_id": "x_ksa_01",
+      "platform": "x",
+      "username": "your_x_account_1",
+      "proxy_url": "http://user:pass@ksa-res-proxy-1.provider.com:8080",
+      "storage_state_path": "data/sessions/x_ksa_01.json",
+      "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "status": "active"
+    },
+    {
+      "account_id": "x_ksa_02",
+      "platform": "x",
+      "username": "your_x_account_2",
+      "proxy_url": "http://user:pass@ksa-res-proxy-2.provider.com:8080",
+      "storage_state_path": "data/sessions/x_ksa_02.json",
+      "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "viewport": {
+        "width": 1536,
+        "height": 864
+      },
+      "status": "active"
+    },
+    {
+      "account_id": "tiktok_ksa_01",
+      "platform": "tiktok",
+      "username": "your_tiktok_burner_1",
+      "proxy_url": "http://user:pass@ksa-res-proxy-3.provider.com:8080",
+      "storage_state_path": "data/sessions/tiktok_ksa_01.json",
+      "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "viewport": {
+        "width": 1536,
+        "height": 864
+      },
+      "status": "active"
+    }
+  ]
+}
