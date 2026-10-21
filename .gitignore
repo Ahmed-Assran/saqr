@@ -56,3 +56,5 @@ htmlcov/
 *~
 .DS_Store
 Thumbs.db
+
+data/temp_chrome_profile/
