@@ -118,3 +118,21 @@ async def test_llm_classifier_sharia_fallback(classifier):
     res = await classifier.classify_lead(lead)
     assert res["interest_category"] == "2_Halal_Sharia_Stocks"
     assert res["intent_score"] >= 30.0
+
+
+def test_heuristic_lead_with_phone_contact(scorer):
+    lead = NormalizedLead(
+        platform="x",
+        user_id="u_phone",
+        username="phone_trader",
+        display_name="فهد تداول",
+        bio="متداول أوبشن بالرياض",
+        location="الرياض",
+        phone_number="+966501234567",
+        whatsapp_url="https://wa.me/966501234567",
+        can_dm=False,
+    )
+    score, breakdown = scorer.score_lead(lead)
+    assert breakdown["reachability_score"] == 15.0
+    assert any("Verified mobile" in d for d in breakdown["details"])
+

@@ -119,16 +119,22 @@ class HeuristicScorer:
         capital_score = min(20.0, capital_pts)
         breakdown["capital_score"] = capital_score
 
-        # 3. Reachability (0–15 pts)
+        # 3. Reachability & Direct Contact (0–15 pts)
         reach_pts = 0.0
-        if lead.can_dm is True:
+        if lead.phone_number or lead.whatsapp_url:
+            reach_pts += 15.0
+            breakdown["details"].append(f"Verified mobile / WhatsApp link ({lead.phone_number or lead.whatsapp_url}) (+15)")
+        elif lead.can_dm is True:
             reach_pts += 15.0
             breakdown["details"].append("Direct Messages enabled on X.com (+15)")
+        elif lead.telegram_handle:
+            reach_pts += 12.0
+            breakdown["details"].append(f"Direct Telegram handle ({lead.telegram_handle}) (+12)")
         else:
             has_contact = any(rx.search(lead.bio) for rx in self.contact_regexes)
             if has_contact:
-                reach_pts += 15.0
-                breakdown["details"].append("Public contact details in profile bio (+15)")
+                reach_pts += 10.0
+                breakdown["details"].append("Public contact details in profile bio (+10)")
             else:
                 # Check recent activity within 24h
                 try:
@@ -142,7 +148,7 @@ class HeuristicScorer:
         reachability_score = min(15.0, reach_pts)
         breakdown["reachability_score"] = reachability_score
 
-        total_heuristic = geo_score + capital_score + reachability_score
+        total_heuristic = min(60.0, geo_score + capital_score + reachability_score)
         breakdown["total_heuristic_score"] = total_heuristic
 
         return total_heuristic, breakdown

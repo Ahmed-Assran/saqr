@@ -33,6 +33,10 @@ class NormalizedLead(BaseModel):
     can_dm: Optional[bool] = None
     verified: bool = False
     profile_url: str = ""
+    phone_number: Optional[str] = None
+    whatsapp_url: Optional[str] = None
+    telegram_handle: Optional[str] = None
+    contact_source: Optional[str] = None
     triggers: List[TriggerEvent] = Field(default_factory=list)
     first_discovered_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     last_activity_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())

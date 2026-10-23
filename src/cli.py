@@ -22,17 +22,20 @@ def ensure_utf8_console() -> None:
     """Ensure UTF-8 output on Windows consoles when running interactively."""
     if sys.platform == "win32":
         try:
-            if hasattr(sys.stdout, "buffer") and not isinstance(sys.stdout, io.TextIOWrapper):
-                sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-            if hasattr(sys.stderr, "buffer") and not isinstance(sys.stderr, io.TextIOWrapper):
-                sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+            if hasattr(sys.stdout, "reconfigure"):
+                sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+            if hasattr(sys.stderr, "reconfigure"):
+                sys.stderr.reconfigure(encoding="utf-8", errors="replace")
         except Exception:
             pass
+
+ensure_utf8_console()
 
 from src.stage1_browser.account_vault import AccountVault, SocialAccount
 from src.stage1_browser.checkpoint import CheckpointManager
 from src.stage1_browser.stealth_context import create_stealth_context
 from src.stage2_scrapers.models import NormalizedLead, ScoredLead, TriggerEvent
+from src.stage2_scrapers.link_resolver import ContactResolver
 from src.stage2_scrapers.tiktok_scraper import TikTokScraper
 from src.stage2_scrapers.x_scraper import XScraper
 from src.stage3_scorer.deduplicator import Deduplicator
@@ -41,7 +44,7 @@ from src.stage3_scorer.heuristic_scorer import HeuristicScorer
 from src.stage3_scorer.llm_classifier import LLMClassifier
 
 app = typer.Typer(help="Saqr 🦅 (صقر) — Autonomous KSA & GCC US-Stock Lead Scouter CLI")
-console = Console()
+console = Console(legacy_windows=False)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -276,6 +279,11 @@ def dry_run(
     clean_leads = dedup.filter_and_disqualify(synthetic_leads, lookback_days=settings["scoring"]["deduplication_lookback_days"])
     console.print(f"[green]Post-Deduplication & Disqualification: {len(clean_leads)} clean leads.[/green]")
 
+    # 2.5 Contact & Bio Link-in-Bio Resolver (Mobile, WhatsApp, Telegram)
+    console.print("[cyan]Executing Contact & Bio Link Resolver (Mobile/WhatsApp/Telegram)...[/cyan]")
+    resolver = ContactResolver(timeout_sec=settings.get("browser", {}).get("link_timeout_sec", 8.0))
+    clean_leads = asyncio.run(resolver.enrich_leads_batch(clean_leads, max_concurrency=5))
+
     # 3. Stage 3: Heuristic & LLM Scoring
     scorer = HeuristicScorer()
     classifier = LLMClassifier(settings.get("llm", {}))
@@ -319,16 +327,22 @@ def dry_run(
     table.add_column("Rank", justify="center")
     table.add_column("Platform", justify="center")
     table.add_column("Handle", style="cyan")
+    table.add_column("Phone / WhatsApp", justify="center", style="bold green")
+    table.add_column("Telegram", justify="center", style="blue")
     table.add_column("Category", style="magenta")
     table.add_column("Total Score", justify="center", style="bold green")
     table.add_column("DM Status", justify="center")
 
     for idx, sl in enumerate(result["leads_exported"][:10], start=1):
         dm = "Yes" if sl.lead.can_dm else "No"
+        contact_str = sl.lead.phone_number or (sl.lead.whatsapp_url if sl.lead.whatsapp_url else "-")
+        tg_str = sl.lead.telegram_handle or "-"
         table.add_row(
             str(idx),
             sl.lead.platform.upper(),
             f"@{sl.lead.username}",
+            contact_str,
+            tg_str,
             sl.interest_category,
             f"{sl.total_score:.1f}",
             dm,
@@ -428,6 +442,11 @@ def run_all(
         dedup = Deduplicator(db_path=db_path)
         clean_leads = dedup.filter_and_disqualify(staged_leads, lookback_days=settings["scoring"]["deduplication_lookback_days"])
 
+        # --- STAGE 2.5: CONTACT & BIO LINK ENRICHMENT ---
+        console.print("[cyan]Executing Contact & Bio Link Resolver (Mobile/WhatsApp/Telegram)...[/cyan]")
+        resolver = ContactResolver(timeout_sec=settings.get("browser", {}).get("link_timeout_sec", 8.0))
+        clean_leads = await resolver.enrich_leads_batch(clean_leads, max_concurrency=6)
+
         scorer = HeuristicScorer()
         classifier = LLMClassifier(settings.get("llm", {}))
 
@@ -477,7 +496,7 @@ def generate_synthetic_leads(count: int = 50, run_id: Optional[str] = None) -> L
             "user_id": "1001",
             "username": "saudi_trader_99",
             "name": "أبو فهد | تداول",
-            "bio": "مهتم بأسواق المال وتداول عقود الأوبشن الأمريكية 🇸🇦 الرياض. تداول مسؤول.",
+            "bio": "مهتم بأسواق المال وتداول عقود الأوبشن الأمريكية 🇸🇦 الرياض. واتساب: 0501234567",
             "loc": "الرياض، المملكة العربية السعودية",
             "content": "وش رايكم في عقود كول سهم $NVDA سترايك 140 لشهر نوفمبر؟ هل الدخول مناسب؟",
             "can_dm": True,
@@ -487,7 +506,7 @@ def generate_synthetic_leads(count: int = 50, run_id: Optional[str] = None) -> L
             "user_id": "1002",
             "username": "fahad_options",
             "name": "فهد الشمري",
-            "bio": "عقود الخيارات الأمريكية (أوبشن) | كول وبوت | جدة 🇸🇦",
+            "bio": "عقود الخيارات الأمريكية (أوبشن) | كول وبوت | جدة 🇸🇦 https://wa.me/966551234567",
             "loc": "جدة",
             "content": "أفضل استراتيجية لتداول الاوبشن في تطبيق سهم كابيتال بعمولة مخفضة يا اخوان؟",
             "can_dm": True,
@@ -498,7 +517,7 @@ def generate_synthetic_leads(count: int = 50, run_id: Optional[str] = None) -> L
             "user_id": "1003",
             "username": "halal_investor_sa",
             "name": "د. عبد الله التميمي",
-            "bio": "مستثمر في الأسهم النقية والمتوافقة مع الشريعة الإسلامية. الدمام 🇸🇦",
+            "bio": "مستثمر في الأسهم النقية والمتوافقة مع الشريعة الإسلامية. قناتي بالتليجرام: @halal_stocks_sa",
             "loc": "الدمام، الشرقية",
             "content": "هل سهم $PLTR نقي شرعاً حسب فلتر الراجحي أو دراية؟ وكيف نسبة التطهير للسهم؟",
             "can_dm": False,
@@ -508,7 +527,7 @@ def generate_synthetic_leads(count: int = 50, run_id: Optional[str] = None) -> L
             "user_id": "1004",
             "username": "suliman_stocks",
             "name": "سليمان القاسم",
-            "bio": "الأسهم الأمريكية النقية | الاستثمار طويل الأجل | القصيم 🇸🇦",
+            "bio": "الأسهم الأمريكية النقية | الاستثمار طويل الأجل | تليجرام t.me/suliman_invest",
             "loc": "بريدة، القصيم",
             "content": "عطونا قائمة الأسهم النقية في قطاع التكنولوجيا الأمريكي لعام 2026. $AAPL و $MSFT",
             "can_dm": True,

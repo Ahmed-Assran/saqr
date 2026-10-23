@@ -32,7 +32,10 @@ COLUMNS = [
     ("المنصة", 12),
     ("اسم المستخدم", 20),
     ("الاسم المعروض", 24),
-    ("رابط الملف الشخصي", 32),
+    ("رقم الجوال", 20),
+    ("رابط واتساب", 22),
+    ("حساب تيليجرام", 22),
+    ("رابط الملف الشخصي", 24),
     ("الموقع الجغرافي", 20),
     ("تصنيف الاهتمام", 26),
     ("الدرجة الإجمالية (100)", 22),
@@ -41,8 +44,8 @@ COLUMNS = [
     ("المراسلة المباشرة (DM)", 20),
     ("سبب التأهيل والملاحظات", 45),
     ("أبرز المنشورات / التغريدات", 50),
-    ("رابط المنشور", 32),
-    ("تاريخ الاكتشاف", 20),
+    ("رابط المنشور", 24),
+    ("تاريخ الاكتشاف", 18),
 ]
 
 
@@ -70,8 +73,14 @@ class LeadExporter:
             logger.warning("No leads met the minimum qualification score.")
             return []
 
-        # Sort all valid leads by descending total score
-        valid_leads.sort(key=lambda x: x.total_score, reverse=True)
+        # Sort all valid leads: phone/whatsapp leads first, then by descending total score
+        valid_leads.sort(
+            key=lambda x: (
+                1 if (x.lead.phone_number or x.lead.whatsapp_url) else 0,
+                x.total_score,
+            ),
+            reverse=True,
+        )
 
         # Group by category
         category_pools: Dict[str, List[ScoredLead]] = {cat: [] for cat in CATEGORY_TAB_NAMES.keys()}
@@ -83,14 +92,14 @@ class LeadExporter:
         selected_leads: List[ScoredLead] = []
         selected_ids = set()
 
-        # Target ~10 leads per category first
+        # Target ~10 leads per category first (within category, phone leads come first due to previous sort)
         quota_per_cat = max(1, self.target_count // len(category_pools))
         for cat, pool in category_pools.items():
             for sl in pool[:quota_per_cat]:
                 selected_leads.append(sl)
                 selected_ids.add((sl.lead.platform, sl.lead.user_id))
 
-        # Fill remaining slots with the highest remaining scoring leads
+        # Fill remaining slots with the highest remaining scoring leads (phone leads prioritized)
         for sl in valid_leads:
             if len(selected_leads) >= self.target_count:
                 break
@@ -99,8 +108,14 @@ class LeadExporter:
                 selected_leads.append(sl)
                 selected_ids.add(key)
 
-        # Final sort by interest category then descending total score
-        selected_leads.sort(key=lambda x: (x.interest_category, -x.total_score))
+        # Final sort: phone leads at the top, then interest category and total score
+        selected_leads.sort(
+            key=lambda x: (
+                0 if (x.lead.phone_number or x.lead.whatsapp_url) else 1,
+                x.interest_category,
+                -x.total_score,
+            )
+        )
         logger.info(f"Selected {len(selected_leads)} top balanced leads for export")
         return selected_leads
 
@@ -127,6 +142,10 @@ class LeadExporter:
         center_align = Alignment(horizontal="center", vertical="center", wrap_text=False)
         right_align = Alignment(horizontal="right", vertical="center", wrap_text=True)
 
+        phone_fill = PatternFill(start_color="D1E7DD", end_color="D1E7DD", fill_type="solid")
+        phone_font = Font(name="Calibri", size=10, bold=True, color="0F5132")
+        wa_link_font = Font(name="Calibri", size=10, bold=True, color="0F5132", underline="single")
+
         def populate_sheet(ws: openpyxl.worksheet.worksheet.Worksheet, sheet_leads: List[ScoredLead]) -> None:
             # Enable Right-to-Left (RTL) mode for Arabic
             ws.views.sheetView[0].rightToLeft = True
@@ -148,11 +167,18 @@ class LeadExporter:
                 trigger_url = primary_trigger.url if primary_trigger else ""
                 dm_status = "نعم (متاح)" if lead.can_dm is True else ("غير متاح" if lead.can_dm is False else "غير محدد")
 
+                phone_display = lead.phone_number or "غير متوفر"
+                wa_display = lead.whatsapp_url or "غير متوفر"
+                tg_display = lead.telegram_handle or "غير متوفر"
+
                 row_values = [
                     row_idx - 1,
                     lead.platform.upper(),
                     f"@{lead.username}",
                     lead.display_name,
+                    phone_display,
+                    wa_display,
+                    tg_display,
                     lead.profile_url,
                     lead.location or "غير محدد",
                     sl.interest_category,
@@ -181,13 +207,27 @@ class LeadExporter:
                     if fill:
                         cell.fill = fill
 
-                    # Format hyperlinks
-                    if col_idx == 5 and str(val).startswith("http"):
+                    # Format phone number badge
+                    if col_idx == 5 and lead.phone_number:
+                        cell.value = val
+                        cell.font = phone_font
+                        cell.fill = phone_fill
+                        cell.alignment = center_align
+                    # Format WhatsApp hyperlink
+                    elif col_idx == 6 and str(val).startswith("http"):
+                        cell.value = "محادثة واتساب 💬"
+                        cell.hyperlink = str(val)
+                        cell.font = wa_link_font
+                        cell.fill = phone_fill
+                        cell.alignment = center_align
+                    # Format Profile hyperlink
+                    elif col_idx == 8 and str(val).startswith("http"):
                         cell.value = "رابط الحساب"
                         cell.hyperlink = str(val)
                         cell.font = link_font
                         cell.alignment = center_align
-                    elif col_idx == 14 and str(val).startswith("http"):
+                    # Format Post hyperlink
+                    elif col_idx == 17 and str(val).startswith("http"):
                         cell.value = "رابط المنشور"
                         cell.hyperlink = str(val)
                         cell.font = link_font
@@ -195,7 +235,7 @@ class LeadExporter:
                     else:
                         cell.value = val
                         cell.font = regular_font
-                        if col_idx in (1, 2, 8, 9, 10, 11, 15):
+                        if col_idx in (1, 2, 5, 6, 7, 8, 11, 12, 13, 14, 17, 18):
                             cell.alignment = center_align
                         else:
                             cell.alignment = right_align
@@ -248,6 +288,9 @@ class LeadExporter:
                     lead.platform.upper(),
                     f"@{lead.username}",
                     lead.display_name,
+                    lead.phone_number or "غير متوفر",
+                    lead.whatsapp_url or "غير متوفر",
+                    lead.telegram_handle or "غير متوفر",
                     lead.profile_url,
                     lead.location or "غير محدد",
                     sl.interest_category,
@@ -263,6 +306,7 @@ class LeadExporter:
                 writer.writerow(row)
 
         logger.info(f"Successfully generated UTF-8 BOM CSV at {output_path}")
+        return output_path
         return output_path
 
     def export_all(self, scored_leads: List[ScoredLead], date_tag: Optional[str] = None) -> Dict[str, Path]:

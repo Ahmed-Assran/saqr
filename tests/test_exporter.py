@@ -95,6 +95,12 @@ def test_export_excel_and_csv_files(tmp_path):
     # Row 1 is header, Row 2-6 are leads
     assert ws_all.max_row == 6
 
+    # Verify contact columns exist in headers
+    headers = [cell.value for cell in ws_all[1]]
+    assert "رقم الجوال" in headers
+    assert "رابط واتساب" in headers
+    assert "حساب تيليجرام" in headers
+
     # Inspect CSV BOM
     with open(csv_path, "rb") as f:
         bom = f.read(3)
