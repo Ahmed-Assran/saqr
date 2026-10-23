@@ -273,9 +273,9 @@ def dry_run(
     synthetic_leads = generate_synthetic_leads(sample_size)
     console.print(f"[green]Generated {len(synthetic_leads)} synthetic raw leads.[/green]")
 
-    # 2. Stage 3: Deduplication & Bot Disqualification
-    db_path = PROJECT_ROOT / settings["paths"]["db_path"]
-    dedup = Deduplicator(db_path=db_path)
+    # 2. Stage 3: Deduplication & Bot Disqualification (Using isolated test db for dry-runs)
+    test_db_path = PROJECT_ROOT / "data" / "db" / "dry_run_leads_history.db"
+    dedup = Deduplicator(db_path=test_db_path)
     clean_leads = dedup.filter_and_disqualify(synthetic_leads, lookback_days=settings["scoring"]["deduplication_lookback_days"])
     console.print(f"[green]Post-Deduplication & Disqualification: {len(clean_leads)} clean leads.[/green]")
 
